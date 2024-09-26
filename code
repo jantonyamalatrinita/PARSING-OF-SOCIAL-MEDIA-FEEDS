@@ -1,0 +1,77 @@
+%pip install -q google-colab-selenium
+import google_colab_selenium as gs
+driver.get('https://www.google.com')
+print(driver.title)
+driver.quit()
+%pip install -q google-colab-selenium[undetected]
+import google_colab_selenium as gs
+!pip install pytesseract
+import google_colab_selenium as gs
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import StaleElementReferenceException
+from nltk.sentiment import SentimentIntensityAnalyzer
+import nltk
+import requests
+import pytesseract
+from PIL import Image
+import io
+import time
+nltk.download('vader_lexicon')
+pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+
+sia = SentimentIntensityAnalyzer()
+
+options = Options()
+options.add_argument("--window-size=1920,1080")
+options.add_argument("--disable-infobars")
+options.add_argument("--disable-popup-blocking")
+options.add_argument("--ignore-certificate-errors")
+options.add_argument("--incognito")
+
+driver = gs.Chrome(options=options)
+
+url = 'https://techcrunch.com/2023/07/06/instagram-head-threads-adding-following-feed-other-additional-features/'
+driver.get(url)
+time.sleep(3)
+print(driver.title)
+
+def get_text_safely(driver, xpath):
+    try:
+        elements = WebDriverWait(driver, 10).until(
+            EC.presence_of_all_elements_located((By.XPATH, xpath))
+        )
+        return " ".join([element.text.lower() for element in elements if element.text.strip()])
+    except StaleElementReferenceException:
+        elements = driver.find_elements(By.XPATH, xpath)
+        return " ".join([element.text.lower() for element in elements if element.text.strip()])
+
+page_text = get_text_safely(driver, "//*[not(self::script or self::style)]")
+
+image_elements = driver.find_elements(By.TAG_NAME, "img")
+
+ocr_text = ""
+for image in image_elements:
+    src = image.get_attribute("src")
+    if src:
+        try:
+            image_content = requests.get(src).content
+            img = Image.open(io.BytesIO(image_content))
+            if img.format in ['JPEG', 'PNG']:
+                ocr_text += pytesseract.image_to_string(img).lower() + " "
+        except Exception as e:
+            print(f"image processed: {src}, error: {e}")
+combined_text = page_text + ocr_text
+sentiment_score = sia.polarity_scores(combined_text)
+
+positive_threshold = 0.5
+
+if sentiment_score['compound'] >= positive_threshold:
+    print(f"Page is safe (Sentiment score: {sentiment_score['compound']}). No screenshot taken.")
+else:
+    screenshot_path = "/content/screenshot.png"
+    driver.save_screenshot(screenshot_path)
+    print(f"Page is not safe  Screenshot saved as {screenshot_path}")
+driver.quit()
